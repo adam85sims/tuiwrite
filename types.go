@@ -75,9 +75,17 @@ type model struct {
 	// Auto-save
 	lastSave time.Time
 
-	// Word wrap
-	wrappedLines []wrappedLine // cached wrapped lines for display
-	wrapWidth    int           // width used for current wrapping
+	// Word wrap (lazy caching)
+	wrapCache map[int][]wrappedLine // cache of wrapped lines per source line index
+	wrapWidth int                   // width used for current wrapping
+
+	// Font size controls
+	fontSize          int       // current font size (100 = 100% = normal)
+	fontSizeDirection string    // "increase", "decrease", or "" when not held
+	lastFontSizeTime  time.Time // for smooth font size changes
+
+	// Zen mode
+	zenMode bool // true when in fullscreen/borderless mode
 
 	// Spell checking
 	spellChecker *SpellChecker
@@ -85,7 +93,40 @@ type model struct {
 	// Command mode
 	commandMode   bool   // true when in command mode (after typing :)
 	commandBuffer string // current command being typed
+
+	// File tree
+	fileTreeVisible bool       // true when file tree sidebar is shown
+	fileTreeFocused bool       // true when file tree has focus (vs editor)
+	fileTreeCursor  int        // current selection in file tree
+	fileTreeNodes   []FileNode // flattened list of visible tree nodes
+	fileTreeRoot    string     // root directory path for file tree
+}
+
+// FileNode represents an item in the file tree
+type FileNode struct {
+	Name     string     // file or folder name
+	Path     string     // full path to the file/folder
+	IsDir    bool       // true if this is a directory
+	Expanded bool       // true if directory is expanded (only applies to directories)
+	Depth    int        // indentation depth in the tree
+	Children []FileNode // child nodes (only for directories)
+}
+
+// Tab represents a single open file/document (for future multi-tab support)
+type Tab struct {
+	Filename string   // file path
+	DocMode  DocMode  // story or script mode
+	Lines    []string // document content
+	CursorX  int      // column position
+	CursorY  int      // line position
+	OffsetY  int      // vertical scroll offset
+	OffsetX  int      // horizontal scroll offset
+	Modified bool     // has unsaved changes
+	LastSave time.Time
 }
 
 // autoSaveMsg is sent periodically to trigger auto-save
 type autoSaveMsg time.Time
+
+// fontSizeTickMsg is sent periodically when font size key is held
+type fontSizeTickMsg time.Time

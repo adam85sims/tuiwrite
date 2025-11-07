@@ -1,0 +1,138 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"time"
+)
+
+// Helper methods for tab management
+
+// currentTab returns a pointer to the currently active tab
+func (m *model) currentTab() *Tab {
+	if len(m.tabs) == 0 || m.activeTab < 0 || m.activeTab >= len(m.tabs) {
+		return nil
+	}
+	return &m.tabs[m.activeTab]
+}
+
+// hasTab returns true if there is at least one tab open
+func (m *model) hasTab() bool {
+	return len(m.tabs) > 0 && m.activeTab >= 0 && m.activeTab < len(m.tabs)
+}
+
+// openFile opens a file in a new tab or switches to it if already open
+func (m *model) openFile(filepath string) error {
+	// Check if file is already open in a tab
+	for i, tab := range m.tabs {
+		if tab.Filename == filepath {
+			m.activeTab = i
+			LogInfof("Switched to existing tab: %s", filepath)
+			return nil
+		}
+	}
+
+	// Read file contents
+	content, err := os.ReadFile(filepath)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
+	}
+
+	lines := []string{}
+	if len(content) > 0 {
+		lines = strings.Split(string(content), "\n")
+		if len(lines) == 0 {
+			lines = []string{""}
+		}
+	} else {
+		lines = []string{""}
+	}
+
+	// Create new tab
+	newTab := Tab{
+		Filename: filepath,
+		DocMode:  m.tabs[0].DocMode, // Inherit doc mode from first tab
+		Lines:    lines,
+		CursorX:  0,
+		CursorY:  0,
+		OffsetY:  0,
+		OffsetX:  0,
+		Modified: false,
+		LastSave: time.Now(),
+	}
+
+	m.tabs = append(m.tabs, newTab)
+	m.activeTab = len(m.tabs) - 1
+	m.wrapCache = make(map[int][]wrappedLine) // Clear wrap cache
+	m.wrapWidth = 0
+	LogInfof("Opened new tab: %s", filepath)
+
+	return nil
+}
+
+// closeTab closes the tab at the given index
+func (m *model) closeTab(index int) error {
+	if index < 0 || index >= len(m.tabs) {
+		return fmt.Errorf("invalid tab index: %d", index)
+	}
+
+	tab := m.tabs[index]
+	if tab.Modified {
+		return fmt.Errorf("tab has unsaved changes: %s", tab.Filename)
+	}
+
+	// Remove tab from slice
+	m.tabs = append(m.tabs[:index], m.tabs[index+1:]...)
+
+	// Adjust active tab index
+	if len(m.tabs) == 0 {
+		return fmt.Errorf("cannot close last tab")
+	}
+
+	if m.activeTab >= len(m.tabs) {
+		m.activeTab = len(m.tabs) - 1
+	}
+
+	m.wrapCache = make(map[int][]wrappedLine) // Clear wrap cache
+	m.wrapWidth = 0
+	LogInfof("Closed tab at index %d", index)
+
+	return nil
+}
+
+// nextTab switches to the next tab (wraps around)
+func (m *model) nextTab() {
+	if len(m.tabs) <= 1 {
+		return
+	}
+	m.activeTab = (m.activeTab + 1) % len(m.tabs)
+	m.wrapCache = make(map[int][]wrappedLine) // Clear wrap cache
+	m.wrapWidth = 0
+	LogInfof("Switched to next tab: %s", m.tabs[m.activeTab].Filename)
+}
+
+// prevTab switches to the previous tab (wraps around)
+func (m *model) prevTab() {
+	if len(m.tabs) <= 1 {
+		return
+	}
+	m.activeTab--
+	if m.activeTab < 0 {
+		m.activeTab = len(m.tabs) - 1
+	}
+	m.wrapCache = make(map[int][]wrappedLine) // Clear wrap cache
+	m.wrapWidth = 0
+	LogInfof("Switched to previous tab: %s", m.tabs[m.activeTab].Filename)
+}
+
+// switchToTab switches to the tab at the given index
+func (m *model) switchToTab(index int) {
+	if index < 0 || index >= len(m.tabs) {
+		return
+	}
+	m.activeTab = index
+	m.wrapCache = make(map[int][]wrappedLine) // Clear wrap cache
+	m.wrapWidth = 0
+	LogInfof("Switched to tab %d: %s", index, m.tabs[index].Filename)
+}

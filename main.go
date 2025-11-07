@@ -241,22 +241,29 @@ func main() {
 
 	// Initialize model
 	m := model{
-		filename:      filename,
-		docMode:       docMode,
-		lines:         lines,
-		cursorX:       0,
-		cursorY:       0,
-		offsetY:       0,
-		offsetX:       0,
-		mode:          ReadMode, // Start in read mode
-		saved:         true,
-		modified:      false,
-		lastSave:      time.Now(),
-		wrappedLines:  make([]wrappedLine, 0),
-		wrapWidth:     0,
-		spellChecker:  newSpellChecker("uk"), // Default to UK English
-		commandMode:   false,
-		commandBuffer: "",
+		filename:          filename,
+		docMode:           docMode,
+		lines:             lines,
+		cursorX:           0,
+		cursorY:           0,
+		offsetY:           0,
+		offsetX:           0,
+		mode:              ReadMode, // Start in read mode
+		saved:             true,
+		modified:          false,
+		lastSave:          time.Now(),
+		wrapCache:         make(map[int][]wrappedLine),
+		wrapWidth:         0,
+		fontSize:          DefaultFontSize, // 100%
+		fontSizeDirection: "",
+		lastFontSizeTime:  time.Now(),
+		zenMode:           false,
+		spellChecker:      newSpellChecker("uk"), // Default to UK English
+		commandMode:       false,
+		commandBuffer:     "",
+		fileTreeVisible:   false,
+		fileTreeFocused:   false,
+		fileTreeCursor:    0,
 	}
 
 	// Run the program
