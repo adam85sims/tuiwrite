@@ -2,30 +2,125 @@ package main
 
 import "strings"
 
-// rewrapLines recalculates word wrapping for all lines
+// getVisibleWrappedLines returns only the wrapped lines needed for the current viewport
+// This is the core of the lazy wrapping system - only wraps what's visible!
+func (m *model) getVisibleWrappedLines(startOffset int, count int) []wrappedLine {
+	if m.width <= 0 {
+		return nil
+	}
+
+	// Calculate wrap width
+	wrapWidth := m.width - 2
+	if wrapWidth < 20 {
+		wrapWidth = 20
+	}
+
+	// If width changed, invalidate all cache
+	if m.wrapWidth != wrapWidth {
+		m.wrapWidth = wrapWidth
+		m.invalidateAllWrapCache()
+	}
+
+	// Initialize cache if needed
+	if m.wrapCache == nil {
+		m.wrapCache = make(map[int][]wrappedLine)
+	}
+
+	result := make([]wrappedLine, 0, count)
+	wrappedIdx := 0
+
+	// Iterate through source lines and collect wrapped lines
+	for lineIdx := 0; lineIdx < len(m.lines) && len(result) < count+startOffset; lineIdx++ {
+		// Get wrapped lines for this source line (from cache or wrap it)
+		wrappedForLine := m.getWrappedLine(lineIdx)
+
+		// Add wrapped lines to result if they're in the visible range
+		for _, wl := range wrappedForLine {
+			if wrappedIdx >= startOffset && wrappedIdx < startOffset+count {
+				result = append(result, wl)
+			}
+			wrappedIdx++
+			if wrappedIdx >= startOffset+count {
+				return result
+			}
+		}
+	}
+
+	return result
+}
+
+// getWrappedLine returns wrapped lines for a single source line (cached)
+func (m *model) getWrappedLine(lineIdx int) []wrappedLine {
+	// Check if already in cache
+	if cached, ok := m.wrapCache[lineIdx]; ok {
+		return cached
+	}
+
+	// Not in cache, wrap it now
+	if lineIdx >= len(m.lines) {
+		return []wrappedLine{{text: "", sourceLineY: lineIdx, isLastWrap: true}}
+	}
+
+	line := m.lines[lineIdx]
+	wrappedTexts := wrapLine(line, m.wrapWidth)
+
+	// Convert to wrappedLine structs
+	result := make([]wrappedLine, len(wrappedTexts))
+	for i, text := range wrappedTexts {
+		result[i] = wrappedLine{
+			text:        text,
+			sourceLineY: lineIdx,
+			isLastWrap:  i == len(wrappedTexts)-1,
+		}
+	}
+
+	// Cache it
+	m.wrapCache[lineIdx] = result
+	return result
+}
+
+// invalidateWrapCache invalidates the cache for a specific line (called when line is edited)
+func (m *model) invalidateWrapCache(lineIdx int) {
+	if m.wrapCache != nil {
+		delete(m.wrapCache, lineIdx)
+	}
+}
+
+// invalidateWrapCacheFrom invalidates cache for all lines from lineIdx onwards
+// This is needed when inserting/deleting lines, as all subsequent line indices shift
+func (m *model) invalidateWrapCacheFrom(lineIdx int) {
+	if m.wrapCache == nil {
+		return
+	}
+
+	// Delete all cache entries for lines >= lineIdx
+	for i := lineIdx; i < len(m.lines)+10; i++ { // +10 to catch any extras
+		delete(m.wrapCache, i)
+	}
+}
+
+// invalidateAllWrapCache clears the entire wrap cache (called on window resize)
+func (m *model) invalidateAllWrapCache() {
+	m.wrapCache = make(map[int][]wrappedLine)
+}
+
+// rewrapLines is kept for compatibility but now just invalidates cache
+// The actual wrapping happens lazily in getVisibleWrappedLines
 func (m *model) rewrapLines() {
 	if m.width <= 0 {
 		return
 	}
 
-	// Calculate usable width (leave some margin for status info)
+	// Calculate wrap width
 	wrapWidth := m.width - 2
 	if wrapWidth < 20 {
-		wrapWidth = 20 // Minimum wrap width
+		wrapWidth = 20
 	}
 
-	m.wrapWidth = wrapWidth
-	m.wrappedLines = make([]wrappedLine, 0)
-
-	for lineIdx, line := range m.lines {
-		wrapped := wrapLine(line, wrapWidth)
-		for i, wText := range wrapped {
-			m.wrappedLines = append(m.wrappedLines, wrappedLine{
-				text:        wText,
-				sourceLineY: lineIdx,
-				isLastWrap:  i == len(wrapped)-1,
-			})
-		}
+	// If width changed, invalidate cache
+	if m.wrapWidth != wrapWidth {
+		m.wrapWidth = wrapWidth
+		m.invalidateAllWrapCache()
 	}
 
 	// Adjust viewport to keep cursor visible
@@ -102,10 +197,22 @@ func wrapLine(line string, width int) []string {
 
 // getWrappedLineIndexForCursor returns the wrapped line index for the cursor position
 func (m *model) getWrappedLineIndexForCursor() int {
-	for i, wl := range m.wrappedLines {
-		if wl.sourceLineY == m.cursorY {
-			return i
-		}
+	wrappedIdx := 0
+
+	// Count wrapped lines before cursor's source line
+	for lineIdx := 0; lineIdx < m.cursorY && lineIdx < len(m.lines); lineIdx++ {
+		wrappedForLine := m.getWrappedLine(lineIdx)
+		wrappedIdx += len(wrappedForLine)
 	}
-	return 0
+
+	// Now we're at the start of the cursor's source line
+	// Find which wrapped line within this source line contains the cursor
+	if m.cursorY < len(m.lines) {
+		wrappedForLine := m.getWrappedLine(m.cursorY)
+		// For now, just return the first wrapped line of the cursor's source line
+		// (More sophisticated logic would determine exact wrapped line based on cursorX)
+		_ = wrappedForLine
+	}
+
+	return wrappedIdx
 }

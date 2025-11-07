@@ -98,6 +98,7 @@ type model struct {
 	fileTreeVisible bool       // true when file tree sidebar is shown
 	fileTreeFocused bool       // true when file tree has focus (vs editor)
 	fileTreeCursor  int        // current selection in file tree
+	fileTreeOffset  int        // scroll offset for file tree viewport
 	fileTreeNodes   []FileNode // flattened list of visible tree nodes
 	fileTreeRoot    string     // root directory path for file tree
 }

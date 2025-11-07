@@ -72,8 +72,15 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "f1":
+		// Toggle file tree sidebar
+		return m.toggleFileTree()
+
 	case "insert":
-		// Toggle between Read and Edit mode
+		// Toggle between Read and Edit mode (only if file tree not focused)
+		if m.fileTreeFocused {
+			return m, nil
+		}
 		if m.mode == ReadMode {
 			m.mode = EditMode
 			m.setStatus("-- EDIT MODE --", "green")
@@ -91,12 +98,17 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ":":
-		// Enter command mode (only in Read mode)
-		if m.mode == ReadMode {
+		// Enter command mode (only in Read mode and file tree not focused)
+		if m.mode == ReadMode && !m.fileTreeFocused {
 			m.commandMode = true
 			m.commandBuffer = ":"
 		}
 		return m, nil
+	}
+
+	// If file tree is focused, handle file tree navigation
+	if m.fileTreeFocused {
+		return m.handleFileTreeNavigation(msg.String())
 	}
 
 	// Mode-specific keybindings
@@ -264,6 +276,12 @@ func main() {
 		fileTreeVisible:   false,
 		fileTreeFocused:   false,
 		fileTreeCursor:    0,
+		fileTreeOffset:    0,
+	}
+
+	// Initialize file tree
+	if err := m.initFileTree(); err != nil {
+		LogWarningf("Failed to initialize file tree: %v", err)
 	}
 
 	// Run the program

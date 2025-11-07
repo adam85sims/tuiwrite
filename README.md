@@ -1,32 +1,43 @@
-# tuiwrite - First Draft
+# tuiwrite
 
 A modal TUI text editor for prose and screenplay writing, built with Go and Bubble Tea.
 
 **Performance**: Optimized for large documents with lazy word wrapping (handles 10,000+ line files smoothly)
 
-## Features Implemented (v0.2)
+## Features Implemented (v0.3)
 
 ### Core Functionality
 - ✅ Modal interface (Read Mode / Edit Mode)
 - ✅ File loading and creation
 - ✅ Manual save (Ctrl+S)
 - ✅ Auto-save every 30 minutes
-- ✅ Basic text editing (insert, delete, backspace)
-- ✅ Line navigation with arrow keys
+- ✅ Full text editing (insert, delete, backspace, enter)
+- ✅ Line navigation with arrow keys and vim keys (hjkl)
 - ✅ Page navigation (PgUp/PgDn)
 - ✅ Document start/end navigation (Ctrl+Home/End, g/G)
 - ✅ Status bar with mode indicator, filename, and position
 - ✅ Modified indicator [+]
 - ✅ Colored status messages
 - ✅ **Lazy word wrapping** (3,192x faster for large files!)
-- ✅ Visible cursor in both Read and Edit modes
+- ✅ Visible cursor in both Read and Edit modes (different styles)
 - ✅ Command mode (`:` in Read Mode)
 - ✅ On-demand spell-checking with dictionary downloads
+- ✅ **File tree sidebar** (F1) with directory navigation
+- ✅ Smart cache invalidation for optimal performance
+
+### File Tree (F1)
+- **Toggle sidebar**: Press F1 to show/hide the file tree
+- **Navigate**: Arrow keys (↑↓) or vim keys (j/k)
+- **Expand/collapse folders**: Press Enter on directories
+- **Select files**: Press Enter on files (opens in editor - coming soon)
+- **Auto-scroll**: Viewport automatically scrolls to keep selection visible
+- **Smart filtering**: Hides hidden files, node_modules, vendor directories
+- **Visual indicators**: 📁/📂 for folders, 📄 for files
 
 ### Performance
 - **Lazy wrapping**: Only processes visible lines (not entire document)
 - **Per-line caching**: Wrapped results cached and reused
-- **Smart invalidation**: Only edited lines re-wrapped
+- **Smart invalidation**: Cache properly invalidated on line insertion/deletion
 - **Benchmarks**: 440ns rendering vs 1.4ms (old approach)
 - **Memory efficient**: 1KB per render vs 1.7MB (99.94% reduction)
 - **Tested**: Handles 10,000 line documents with zero lag
@@ -45,7 +56,7 @@ A modal TUI text editor for prose and screenplay writing, built with Go and Bubb
 
 ### Building
 ```bash
-go build -o tuiwrite main.go
+go build -o tuiwrite
 ```
 
 ### Running
@@ -60,6 +71,7 @@ go build -o tuiwrite main.go
 ## Keybindings
 
 ### Global (Both Modes)
+- `F1` - Toggle file tree sidebar
 - `Ctrl+S` - Save file
 - `Ctrl+C` / `Ctrl+Q` - Quit
 - `Insert` - Toggle to Edit Mode (from Read) or Enter Edit Mode
@@ -77,11 +89,16 @@ go build -o tuiwrite main.go
 ### Edit Mode (Full Editing)
 - `↑↓←→` - Navigate cursor
 - `Enter` - New line
-- `Backspace` - Delete character before cursor
-- `Delete` - Delete character at cursor
+- `Backspace` - Delete character before cursor / Join with previous line
+- `Delete` - Delete character at cursor / Join with next line
 - `Home` - Start of line
 - `End` - End of line
 - Any printable character - Insert at cursor
+
+### File Tree Mode (F1 Sidebar Active)
+- `↑↓` or `jk` - Navigate up/down in file tree
+- `Enter` - Expand/collapse folders, or select files
+- `F1` - Close file tree and return to editor
 
 ## Command Mode
 
@@ -141,20 +158,31 @@ Once downloaded, dictionaries work offline. If you're not connected to the inter
 
 Visual spell-check indicators (underlining misspelled words) will be added in a future update.
 
+## Recently Fixed Bugs
+
+### November 7, 2025
+- ✅ **Rendering issue on line insertion**: Fixed cache invalidation when inserting/deleting lines. The wrap cache is now properly invalidated for all lines after insertion/deletion points, preventing text from appearing to overlap.
+- ✅ **File tree scrolling**: Added viewport scrolling to the file tree sidebar. The tree now automatically scrolls to keep the selected item visible when navigating with arrow keys.
+
 ## Features Not Yet Implemented
 
 The following features from the design document are planned for future versions:
-- F1-F4 function keys (file tree, statistics, search, menu)
-- Visual spell-check highlighting
+- F2-F4 function keys (statistics panel, search, main menu)
+- Multi-file editing with tabs
+- Visual spell-check highlighting (red underlines)
 - Formatting commands (#bold:, #italics:, etc.)
 - Structural commands (#title:, #chapter:, #break:, etc.)
-- File tree sidebar
-- Statistics panel
+- Chapter navigation system
+- Statistics panel (word count, reading time, etc.)
 - Search/find functionality
-- Export functionality
+- Export functionality (Markdown, PDF, Fountain, etc.)
 - Screenplay-specific formatting
+- Undo/redo functionality
+- Cut/copy/paste
+- Theme customization
 
 ## Notes
 
-This is a first draft implementation focusing on the core modal editing experience and basic file operations. The application starts in Read Mode by default to prevent accidental edits, as specified in the design document.
-[Logging Test]
+This editor focuses on a distraction-free modal editing experience for prose and screenplay writing. The application starts in Read Mode by default to prevent accidental edits. Performance is optimized for large documents through lazy word wrapping and intelligent caching.
+
+For detailed implementation notes and architecture documentation, see [CONTEXT.md](CONTEXT.md).

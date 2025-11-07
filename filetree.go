@@ -186,16 +186,25 @@ func (m model) handleFileTreeNavigation(key string) (tea.Model, tea.Cmd) {
 	}
 
 	flatNodes := flattenFileTree(m.fileTreeNodes)
+	visibleHeight := m.height - 2 // Leave room for status bar
 
 	switch key {
 	case "up", "k":
 		if m.fileTreeCursor > 0 {
 			m.fileTreeCursor--
+			// Scroll up if cursor goes above viewport
+			if m.fileTreeCursor < m.fileTreeOffset {
+				m.fileTreeOffset = m.fileTreeCursor
+			}
 		}
 
 	case "down", "j":
 		if m.fileTreeCursor < len(flatNodes)-1 {
 			m.fileTreeCursor++
+			// Scroll down if cursor goes below viewport
+			if m.fileTreeCursor >= m.fileTreeOffset+visibleHeight {
+				m.fileTreeOffset = m.fileTreeCursor - visibleHeight + 1
+			}
 		}
 
 	case "enter":

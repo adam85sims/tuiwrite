@@ -63,10 +63,12 @@ func (m model) handleEditMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.lines[m.cursorY] = before
 		m.lines = append(m.lines[:m.cursorY+1], append([]string{after}, m.lines[m.cursorY+1:]...)...)
 
+		// Invalidate cache from current line onwards (all subsequent indices shift)
+		m.invalidateWrapCacheFrom(m.cursorY)
+
 		m.cursorY++
 		m.cursorX = 0
 		m.modified = true
-		m.rewrapLines()
 		m.adjustViewport()
 
 	case "backspace":
@@ -76,17 +78,20 @@ func (m model) handleEditMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.lines[m.cursorY] = line[:m.cursorX-1] + line[m.cursorX:]
 			m.cursorX--
 			m.modified = true
-			m.rewrapLines()
+			m.invalidateWrapCache(m.cursorY) // Invalidate modified line
 		} else if m.cursorY > 0 {
-			// Join with previous line
+			// Join with previous line - this deletes a line, so indices shift
 			prevLine := m.lines[m.cursorY-1]
 			currentLine := m.getCurrentLine()
 			m.lines[m.cursorY-1] = prevLine + currentLine
 			m.lines = append(m.lines[:m.cursorY], m.lines[m.cursorY+1:]...)
+
+			// Invalidate cache from previous line onwards (all subsequent indices shift)
+			m.invalidateWrapCacheFrom(m.cursorY - 1)
+
 			m.cursorY--
 			m.cursorX = len(prevLine)
 			m.modified = true
-			m.rewrapLines()
 			m.adjustViewport()
 		}
 
@@ -96,14 +101,17 @@ func (m model) handleEditMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Delete character at cursor
 			m.lines[m.cursorY] = line[:m.cursorX] + line[m.cursorX+1:]
 			m.modified = true
-			m.rewrapLines()
+			m.invalidateWrapCache(m.cursorY) // Invalidate modified line
 		} else if m.cursorY < len(m.lines)-1 {
-			// Join with next line
+			// Join with next line - this deletes a line, so indices shift
 			nextLine := m.lines[m.cursorY+1]
 			m.lines[m.cursorY] = line + nextLine
 			m.lines = append(m.lines[:m.cursorY+1], m.lines[m.cursorY+2:]...)
+
+			// Invalidate cache from current line onwards (all subsequent indices shift)
+			m.invalidateWrapCacheFrom(m.cursorY)
+
 			m.modified = true
-			m.rewrapLines()
 		}
 
 	default:
@@ -115,7 +123,7 @@ func (m model) handleEditMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.lines[m.cursorY] = line[:m.cursorX] + string(r) + line[m.cursorX:]
 				m.cursorX++
 				m.modified = true
-				m.rewrapLines()
+				m.invalidateWrapCache(m.cursorY) // Invalidate modified line
 			}
 		}
 	}

@@ -17,69 +17,169 @@ func (m model) View() string {
 	// Calculate visible area (leave 2 lines for status bar)
 	visibleHeight := m.height - 2
 
-	// Render document lines using wrapped lines
-	for i := 0; i < visibleHeight; i++ {
-		wrappedIdx := m.offsetY + i
+	// If file tree is visible, render split view
+	if m.fileTreeVisible {
+		// File tree takes 30 characters, editor gets the rest
+		treeWidth := 30
+		editorWidth := m.width - treeWidth - 1 // -1 for divider
 
-		if wrappedIdx < len(m.wrappedLines) {
-			wl := m.wrappedLines[wrappedIdx]
-			line := wl.text
+		// Get flattened file tree nodes
+		flatNodes := flattenFileTree(m.fileTreeNodes)
 
-			// Show cursor if this wrapped line is from the current source line
-			// Cursor is visible in both Read and Edit modes
-			if wl.sourceLineY == m.cursorY {
-				// Calculate which part of the source line is in this wrap
-				wrapStartPos := 0
-				for j := 0; j < wrappedIdx; j++ {
-					if m.wrappedLines[j].sourceLineY == m.cursorY {
-						wrapStartPos += len(m.wrappedLines[j].text)
-						if j+1 < len(m.wrappedLines) && m.wrappedLines[j+1].sourceLineY == m.cursorY {
-							wrapStartPos++ // Account for space removed during wrapping
-						}
+		// Get visible lines once for the editor (not in the loop!)
+		visibleLines := m.getVisibleWrappedLines(m.offsetY, visibleHeight)
+
+		// Render each line with file tree on left, editor on right
+		for i := 0; i < visibleHeight; i++ {
+			// Calculate the actual node index with offset
+			nodeIdx := m.fileTreeOffset + i
+
+			// Render file tree column
+			if nodeIdx < len(flatNodes) {
+				node := flatNodes[nodeIdx]
+
+				// Highlight selected node
+				prefix := " "
+				suffix := ""
+				if nodeIdx == m.fileTreeCursor && m.fileTreeFocused {
+					prefix = "\033[7m" // Inverted
+					suffix = "\033[0m"
+				}
+
+				// Indentation
+				indent := strings.Repeat("  ", node.Depth)
+
+				// Icon
+				icon := "📄 "
+				if node.IsDir {
+					if node.Expanded {
+						icon = "📂 "
+					} else {
+						icon = "📁 "
 					}
 				}
 
-				// Check if cursor is in this wrapped line segment
-				wrapEndPos := wrapStartPos + len(line)
-				if m.cursorX >= wrapStartPos && m.cursorX <= wrapEndPos {
-					cursorPosInWrap := m.cursorX - wrapStartPos
+				// Truncate name if too long
+				name := node.Name
+				maxNameLen := treeWidth - len(indent) - len(icon) - 2
+				if len(name) > maxNameLen {
+					name = name[:maxNameLen-1] + "…"
+				}
 
-					if cursorPosInWrap <= len(line) {
-						before := line[:cursorPosInWrap]
-						after := ""
-						cursor := "█"
-						if cursorPosInWrap < len(line) {
-							cursor = string(line[cursorPosInWrap])
-							after = line[cursorPosInWrap+1:]
-						}
+				treeLine := prefix + indent + icon + name + suffix
 
-						// Different cursor style for Read vs Edit mode
-						if m.mode == ReadMode {
-							// Underlined cursor for read mode
-							sb.WriteString(before + "\033[4m" + cursor + "\033[0m" + after)
-						} else {
-							// Inverted cursor for edit mode
-							sb.WriteString(before + "\033[7m" + cursor + "\033[0m" + after)
-						}
+				// Pad to tree width
+				padding := treeWidth - len(stripAnsi(treeLine))
+				if padding > 0 {
+					treeLine += strings.Repeat(" ", padding)
+				}
+
+				sb.WriteString(treeLine)
+			} else {
+				// Empty tree line
+				sb.WriteString(strings.Repeat(" ", treeWidth))
+			}
+
+			// Divider
+			sb.WriteString("│")
+
+			// Render editor column
+			if i < len(visibleLines) {
+				wl := visibleLines[i]
+				line := wl.text
+
+				// Truncate line if too long for editor width
+				if len(line) > editorWidth-1 {
+					line = line[:editorWidth-2] + "…"
+				}
+
+				// Show cursor if this wrapped line is from the current source line
+				if wl.sourceLineY == m.cursorY && !m.fileTreeFocused {
+					cursorPosInWrap := m.cursorX
+					if cursorPosInWrap > len(line) {
+						cursorPosInWrap = len(line)
+					}
+
+					before := ""
+					after := ""
+					cursor := "█"
+
+					if cursorPosInWrap < len(line) {
+						before = line[:cursorPosInWrap]
+						cursor = string(line[cursorPosInWrap])
+						after = line[cursorPosInWrap+1:]
+					} else if cursorPosInWrap == len(line) {
+						before = line
+					}
+
+					if m.mode == ReadMode {
+						sb.WriteString(before + "\033[4m" + cursor + "\033[0m" + after)
 					} else {
-						if m.mode == ReadMode {
-							sb.WriteString(line + "\033[4m \033[0m")
-						} else {
-							sb.WriteString(line + "\033[7m \033[0m")
-						}
+						sb.WriteString(before + "\033[7m" + cursor + "\033[0m" + after)
 					}
 				} else {
 					sb.WriteString(line)
 				}
 			} else {
-				sb.WriteString(line)
+				sb.WriteString("~") // Empty line indicator
 			}
-		} else {
-			sb.WriteString("~") // Empty line indicator
-		}
 
-		if i < visibleHeight-1 {
-			sb.WriteString("\n")
+			if i < visibleHeight-1 {
+				sb.WriteString("\n")
+			}
+		}
+	} else {
+		// No file tree - full width editor
+		// Get only the wrapped lines we need for the visible area (lazy!)
+		visibleLines := m.getVisibleWrappedLines(m.offsetY, visibleHeight)
+
+		// Render document lines using wrapped lines
+		for i := 0; i < visibleHeight; i++ {
+			if i < len(visibleLines) {
+				wl := visibleLines[i]
+				line := wl.text
+
+				// Show cursor if this wrapped line is from the current source line
+				// Cursor is visible in both Read and Edit modes
+				if wl.sourceLineY == m.cursorY {
+					// Calculate which part of the source line is in this wrap
+					// For now, simplified - just show cursor at the position
+					// TODO: Handle cursor position within wrapped lines more accurately
+					cursorPosInWrap := m.cursorX
+					if cursorPosInWrap > len(line) {
+						cursorPosInWrap = len(line)
+					}
+
+					before := ""
+					after := ""
+					cursor := "█"
+
+					if cursorPosInWrap < len(line) {
+						before = line[:cursorPosInWrap]
+						cursor = string(line[cursorPosInWrap])
+						after = line[cursorPosInWrap+1:]
+					} else if cursorPosInWrap == len(line) {
+						before = line
+					}
+
+					// Different cursor style for Read vs Edit mode
+					if m.mode == ReadMode {
+						// Underlined cursor for read mode
+						sb.WriteString(before + "\033[4m" + cursor + "\033[0m" + after)
+					} else {
+						// Inverted cursor for edit mode
+						sb.WriteString(before + "\033[7m" + cursor + "\033[0m" + after)
+					}
+				} else {
+					sb.WriteString(line)
+				}
+			} else {
+				sb.WriteString("~") // Empty line indicator
+			}
+
+			if i < visibleHeight-1 {
+				sb.WriteString("\n")
+			}
 		}
 	}
 
@@ -88,6 +188,15 @@ func (m model) View() string {
 	sb.WriteString(m.renderStatusBar())
 
 	return sb.String()
+}
+
+// stripAnsi removes ANSI escape sequences for length calculation
+func stripAnsi(s string) string {
+	// Simple implementation - removes common ANSI codes
+	s = strings.ReplaceAll(s, "\033[7m", "")
+	s = strings.ReplaceAll(s, "\033[0m", "")
+	s = strings.ReplaceAll(s, "\033[4m", "")
+	return s
 }
 
 // renderStatusBar creates the status bar display
