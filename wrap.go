@@ -209,10 +209,93 @@ func (m *model) getWrappedLineIndexForCursor() int {
 	// Find which wrapped line within this source line contains the cursor
 	if m.cursorY < len(m.lines) {
 		wrappedForLine := m.getWrappedLine(m.cursorY)
-		// For now, just return the first wrapped line of the cursor's source line
-		// (More sophisticated logic would determine exact wrapped line based on cursorX)
-		_ = wrappedForLine
+
+		// Determine which wrapped segment contains the cursor based on cursorX
+		charCount := 0
+		for i, wl := range wrappedForLine {
+			lineLen := len(wl.text)
+			if m.cursorX <= charCount+lineLen || i == len(wrappedForLine)-1 {
+				// Cursor is in this wrapped line
+				wrappedIdx += i
+				break
+			}
+			charCount += lineLen
+		}
 	}
 
 	return wrappedIdx
+}
+
+// moveToWrappedLine moves the cursor to a specific wrapped line index
+// Returns true if successful, false if out of bounds
+func (m *model) moveToWrappedLine(targetWrappedIdx int) bool {
+	if targetWrappedIdx < 0 {
+		return false
+	}
+
+	wrappedIdx := 0
+
+	// Remember current visual X position within the current wrapped line
+	currentWrappedIdx := m.getWrappedLineIndexForCursor()
+	visualX := m.cursorX
+
+	// Calculate visual X position within current wrapped line
+	if m.cursorY < len(m.lines) {
+		wrappedForCurrentLine := m.getWrappedLine(m.cursorY)
+		charCount := 0
+		for _, wl := range wrappedForCurrentLine {
+			if currentWrappedIdx == wrappedIdx {
+				visualX = m.cursorX - charCount
+				break
+			}
+			wrappedIdx++
+			charCount += len(wl.text)
+		}
+	}
+
+	wrappedIdx = 0
+
+	// Find which source line and wrapped offset contains the target
+	for lineIdx := 0; lineIdx < len(m.lines); lineIdx++ {
+		wrappedForLine := m.getWrappedLine(lineIdx)
+
+		if wrappedIdx+len(wrappedForLine) > targetWrappedIdx {
+			// Target is within this source line
+			wrappedOffset := targetWrappedIdx - wrappedIdx
+
+			// Update cursor Y position
+			m.cursorY = lineIdx
+
+			// Calculate the starting character position for this wrapped line
+			charPos := 0
+			for i := 0; i < wrappedOffset && i < len(wrappedForLine); i++ {
+				charPos += len(wrappedForLine[i].text)
+			}
+
+			// Try to position cursor at similar visual X within this wrapped line
+			if wrappedOffset < len(wrappedForLine) {
+				wrapLineText := wrappedForLine[wrappedOffset].text
+				newCursorX := charPos + visualX
+
+				// Clamp to this wrapped line's actual length
+				maxPos := charPos + len(wrapLineText)
+				if newCursorX > maxPos {
+					newCursorX = maxPos
+				}
+
+				// Clamp to source line length
+				if newCursorX > len(m.lines[lineIdx]) {
+					newCursorX = len(m.lines[lineIdx])
+				}
+
+				m.cursorX = newCursorX
+			}
+
+			return true
+		}
+
+		wrappedIdx += len(wrappedForLine)
+	}
+
+	return false
 }

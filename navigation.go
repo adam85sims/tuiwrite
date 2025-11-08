@@ -6,16 +6,18 @@ import tea "github.com/charmbracelet/bubbletea"
 func (m model) handleReadMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "k":
-		if m.cursorY > 0 {
-			m.cursorY--
+		// Navigate by wrapped lines, not source lines
+		currentWrappedIdx := m.getWrappedLineIndexForCursor()
+		if currentWrappedIdx > 0 {
+			m.moveToWrappedLine(currentWrappedIdx - 1)
 			m.adjustViewport()
 		}
 
 	case "down", "j":
-		if m.cursorY < len(m.lines)-1 {
-			m.cursorY++
-			m.adjustViewport()
-		}
+		// Navigate by wrapped lines, not source lines
+		currentWrappedIdx := m.getWrappedLineIndexForCursor()
+		m.moveToWrappedLine(currentWrappedIdx + 1)
+		m.adjustViewport()
 
 	case "left", "h":
 		if m.cursorX > 0 {

@@ -43,7 +43,13 @@ var (
 	Crust    = Color{17, 17, 27}    // #11111b
 )
 
+// ColorToHex converts an RGB color to a hex string for lipgloss
+func ColorToHex(c Color) string {
+	return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)
+}
+
 // ColorToANSI converts an RGB color to an ANSI escape sequence for 24-bit color
+// This is kept for backwards compatibility but ColorToHex should be used with lipgloss
 func ColorToANSI(c Color, foreground bool) string {
 	if foreground {
 		return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", c.R, c.G, c.B)

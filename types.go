@@ -94,6 +94,10 @@ type model struct {
 	commandMode   bool   // true when in command mode (after typing :)
 	commandBuffer string // current command being typed
 
+	// Cursor blink
+	cursorVisible   bool      // true when cursor should be visible (toggles for blink)
+	lastCursorBlink time.Time // last time cursor blink toggled
+
 	// File tree
 	fileTreeVisible bool       // true when file tree sidebar is shown
 	fileTreeFocused bool       // true when file tree has focus (vs editor)
@@ -128,6 +132,9 @@ type Tab struct {
 
 // autoSaveMsg is sent periodically to trigger auto-save
 type autoSaveMsg time.Time
+
+// cursorBlinkMsg is sent periodically to toggle cursor visibility
+type cursorBlinkMsg time.Time
 
 // fontSizeTickMsg is sent periodically when font size key is held
 type fontSizeTickMsg time.Time

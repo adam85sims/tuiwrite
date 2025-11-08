@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // View renders the UI
@@ -13,6 +15,11 @@ func (m model) View() string {
 	}
 
 	var sb strings.Builder
+
+	// Base style with Catppuccin Base background and Text foreground
+	baseStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorToHex(Base))).
+		Foreground(lipgloss.Color(ColorToHex(Text)))
 
 	// Calculate visible area (leave 2 lines for status bar)
 	visibleHeight := m.height - 2
@@ -34,16 +41,31 @@ func (m model) View() string {
 			// Calculate the actual node index with offset
 			nodeIdx := m.fileTreeOffset + i
 
+			var treeLine string
 			// Render file tree column
 			if nodeIdx < len(flatNodes) {
 				node := flatNodes[nodeIdx]
 
-				// Highlight selected node
-				prefix := " "
-				suffix := ""
+				// Color based on file type
+				var itemColor Color
+				if node.IsDir {
+					itemColor = Yellow // Folders are yellow
+				} else {
+					itemColor = Blue // Files are blue
+				}
+
+				// Highlight selected node with inverted colors
+				var treeStyle lipgloss.Style
 				if nodeIdx == m.fileTreeCursor && m.fileTreeFocused {
-					prefix = "\033[7m" // Inverted
-					suffix = "\033[0m"
+					// Inverted: yellow/blue background with base text
+					treeStyle = lipgloss.NewStyle().
+						Background(lipgloss.Color(ColorToHex(itemColor))).
+						Foreground(lipgloss.Color(ColorToHex(Base)))
+				} else {
+					// Normal: base background with colored text
+					treeStyle = lipgloss.NewStyle().
+						Background(lipgloss.Color(ColorToHex(Base))).
+						Foreground(lipgloss.Color(ColorToHex(itemColor)))
 				}
 
 				// Indentation
@@ -66,24 +88,20 @@ func (m model) View() string {
 					name = name[:maxNameLen-1] + "…"
 				}
 
-				treeLine := prefix + indent + icon + name + suffix
-
-				// Pad to tree width
-				padding := treeWidth - len(stripAnsi(treeLine))
-				if padding > 0 {
-					treeLine += strings.Repeat(" ", padding)
-				}
-
-				sb.WriteString(treeLine)
+				treeLine = treeStyle.Width(treeWidth).Render(indent + icon + name)
 			} else {
-				// Empty tree line
-				sb.WriteString(strings.Repeat(" ", treeWidth))
+				// Empty tree line with base background
+				treeLine = baseStyle.Width(treeWidth).Render("")
 			}
 
-			// Divider
-			sb.WriteString("│")
+			sb.WriteString(treeLine)
+
+			// Divider with base background
+			divider := baseStyle.Render("│")
+			sb.WriteString(divider)
 
 			// Render editor column
+			var editorLine string
 			if i < len(visibleLines) {
 				wl := visibleLines[i]
 				line := wl.text
@@ -96,13 +114,17 @@ func (m model) View() string {
 				// Show cursor if this wrapped line is from the current source line
 				if wl.sourceLineY == m.cursorY && !m.fileTreeFocused {
 					cursorPosInWrap := m.cursorX
+					// Bounds checking - prevent negative indices and out of range
+					if cursorPosInWrap < 0 {
+						cursorPosInWrap = 0
+					}
 					if cursorPosInWrap > len(line) {
 						cursorPosInWrap = len(line)
 					}
 
 					before := ""
 					after := ""
-					cursor := "█"
+					cursor := " " // Default to space for empty position
 
 					if cursorPosInWrap < len(line) {
 						before = line[:cursorPosInWrap]
@@ -112,17 +134,24 @@ func (m model) View() string {
 						before = line
 					}
 
-					if m.mode == ReadMode {
-						sb.WriteString(before + "\033[4m" + cursor + "\033[0m" + after)
+					// Apply Maroon background to cursor if visible
+					if m.cursorVisible {
+						cursorStyle := lipgloss.NewStyle().
+							Background(lipgloss.Color(ColorToHex(Maroon))).
+							Foreground(lipgloss.Color(ColorToHex(Base)))
+						line = before + cursorStyle.Render(cursor) + after
 					} else {
-						sb.WriteString(before + "\033[7m" + cursor + "\033[0m" + after)
+						// Cursor not visible - just show the character normally
+						line = before + cursor + after
 					}
-				} else {
-					sb.WriteString(line)
 				}
+
+				editorLine = baseStyle.Width(editorWidth).Render(line)
 			} else {
-				sb.WriteString("~") // Empty line indicator
+				editorLine = baseStyle.Width(editorWidth).Render("~") // Empty line indicator
 			}
+
+			sb.WriteString(editorLine)
 
 			if i < visibleHeight-1 {
 				sb.WriteString("\n")
@@ -135,9 +164,10 @@ func (m model) View() string {
 
 		// Render document lines using wrapped lines
 		for i := 0; i < visibleHeight; i++ {
+			var line string
 			if i < len(visibleLines) {
 				wl := visibleLines[i]
-				line := wl.text
+				line = wl.text
 
 				// Show cursor if this wrapped line is from the current source line
 				// Cursor is visible in both Read and Edit modes
@@ -146,13 +176,17 @@ func (m model) View() string {
 					// For now, simplified - just show cursor at the position
 					// TODO: Handle cursor position within wrapped lines more accurately
 					cursorPosInWrap := m.cursorX
+					// Bounds checking - prevent negative indices and out of range
+					if cursorPosInWrap < 0 {
+						cursorPosInWrap = 0
+					}
 					if cursorPosInWrap > len(line) {
 						cursorPosInWrap = len(line)
 					}
 
 					before := ""
 					after := ""
-					cursor := "█"
+					cursor := " " // Default to space for empty position
 
 					if cursorPosInWrap < len(line) {
 						before = line[:cursorPosInWrap]
@@ -162,20 +196,24 @@ func (m model) View() string {
 						before = line
 					}
 
-					// Different cursor style for Read vs Edit mode
-					if m.mode == ReadMode {
-						// Underlined cursor for read mode
-						sb.WriteString(before + "\033[4m" + cursor + "\033[0m" + after)
+					// Apply Maroon background to cursor if visible
+					if m.cursorVisible {
+						cursorStyle := lipgloss.NewStyle().
+							Background(lipgloss.Color(ColorToHex(Maroon))).
+							Foreground(lipgloss.Color(ColorToHex(Base)))
+						line = before + cursorStyle.Render(cursor) + after
 					} else {
-						// Inverted cursor for edit mode
-						sb.WriteString(before + "\033[7m" + cursor + "\033[0m" + after)
+						// Cursor not visible - just show the character normally
+						line = before + cursor + after
 					}
-				} else {
-					sb.WriteString(line)
 				}
 			} else {
-				sb.WriteString("~") // Empty line indicator
+				line = "~" // Empty line indicator
 			}
+
+			// Apply base style with full width to ensure background fills
+			styledLine := baseStyle.Width(m.width).Render(line)
+			sb.WriteString(styledLine)
 
 			if i < visibleHeight-1 {
 				sb.WriteString("\n")
@@ -201,12 +239,23 @@ func stripAnsi(s string) string {
 
 // renderStatusBar creates the status bar display
 func (m model) renderStatusBar() string {
+	// Status bar styles
+	statusStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorToHex(Surface0))).
+		Foreground(lipgloss.Color(ColorToHex(Text))).
+		Width(m.width)
+
+	commandStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorToHex(Mantle))).
+		Foreground(lipgloss.Color(ColorToHex(Text))).
+		Width(m.width)
+
 	modifiedIndicator := ""
 	if m.modified {
 		modifiedIndicator = " [+]"
 	}
 
-	// First line: mode, filename, position
+	// First line: mode, filename, position (Surface0 background)
 	leftStatus := fmt.Sprintf(" %s | %s%s", m.mode, m.filename, modifiedIndicator)
 	rightStatus := fmt.Sprintf("Ln %d, Col %d ", m.cursorY+1, m.cursorX+1)
 
@@ -215,33 +264,39 @@ func (m model) renderStatusBar() string {
 		padding = 0
 	}
 
-	statusLine1 := "\033[7m" + leftStatus + strings.Repeat(" ", padding) + rightStatus + "\033[0m"
+	statusLine1 := statusStyle.Render(leftStatus + strings.Repeat(" ", padding) + rightStatus)
 
-	// Second line: status message or help
-	statusLine2 := ""
+	// Second line: status message or help (Mantle background for visual separation)
+	var commandText string
 	if m.statusMsg.Text != "" && time.Since(m.statusMsg.Timestamp) < 3*time.Second {
-		// Show temporary status message
-		colorCode := ""
+		// Show temporary status message with appropriate color
+		var msgColor Color
 		switch m.statusMsg.Color {
 		case "green":
-			colorCode = "\033[32m"
+			msgColor = Green
 		case "yellow":
-			colorCode = "\033[33m"
+			msgColor = Yellow
 		case "red":
-			colorCode = "\033[31m"
+			msgColor = Red
+		default:
+			msgColor = Text
 		}
-		statusLine2 = colorCode + m.statusMsg.Text + "\033[0m"
+		// Use lipgloss for consistent color rendering
+		msgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ColorToHex(msgColor)))
+		commandText = msgStyle.Render(m.statusMsg.Text)
 	} else if m.commandMode {
 		// Show command buffer when in command mode
-		statusLine2 = m.commandBuffer
+		commandText = m.commandBuffer
 	} else {
 		// Show help text
 		if m.mode == ReadMode {
-			statusLine2 = "Press INSERT to edit | : for commands | Ctrl+S to save | Ctrl+C to quit"
+			commandText = "Press INSERT to edit | : for commands | Ctrl+S to save | Ctrl+C to quit"
 		} else {
-			statusLine2 = "Press ESC for read mode | Ctrl+S to save | Ctrl+C to quit"
+			commandText = "Press ESC for read mode | Ctrl+S to save | Ctrl+C to quit"
 		}
 	}
+
+	statusLine2 := commandStyle.Render(commandText)
 
 	return statusLine1 + "\n" + statusLine2
 }

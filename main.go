@@ -15,6 +15,7 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		tea.EnterAltScreen,
 		tickAutoSave(),
+		tickCursorBlink(),
 	)
 }
 
@@ -25,10 +26,20 @@ func tickAutoSave() tea.Cmd {
 	})
 }
 
+// tickCursorBlink returns a command that sends cursorBlinkMsg every 500ms
+func tickCursorBlink() tea.Cmd {
+	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
+		return cursorBlinkMsg(t)
+	})
+}
+
 // Update handles messages and updates the model
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Reset cursor to visible when user types
+		m.cursorVisible = true
+		m.lastCursorBlink = time.Now()
 		return m.handleKeyPress(msg)
 
 	case tea.WindowSizeMsg:
@@ -46,6 +57,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, tickAutoSave()
+
+	case cursorBlinkMsg:
+		// Toggle cursor visibility
+		m.cursorVisible = !m.cursorVisible
+		m.lastCursorBlink = time.Now()
+		return m, tickCursorBlink()
 	}
 
 	return m, nil
@@ -102,8 +119,9 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.mode == ReadMode && !m.fileTreeFocused {
 			m.commandMode = true
 			m.commandBuffer = ":"
+			return m, nil
 		}
-		return m, nil
+		// If in Edit mode, fall through to normal edit handling
 	}
 
 	// If file tree is focused, handle file tree navigation
@@ -225,30 +243,61 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 	}
 }
 
+// getUntitledFilename generates a unique untitled document filename
+func getUntitledFilename() string {
+	// Find the next available untitled-document-N
+	counter := 1
+	for {
+		filename := fmt.Sprintf("untitled-document-%d", counter)
+		if _, err := os.Stat(filename); os.IsNotExist(err) {
+			return filename
+		}
+		counter++
+	}
+}
+
 func main() {
+	// Initialize logger
+	if err := initLogger(); err != nil {
+		fmt.Printf("Warning: Failed to initialize logger: %v\n", err)
+	}
+	defer CloseLogger()
+
 	// Parse command line arguments
 	modeFlag := flag.String("mode", "story", "Document mode: story or script")
 	flag.Parse()
 
 	args := flag.Args()
-	if len(args) == 0 {
-		fmt.Println("Usage: tuiwrite <filename> [-mode story|script]")
-		os.Exit(1)
-	}
 
-	filename := args[0]
+	var filename string
+	var lines []string
+	var isUntitled bool
+
+	if len(args) == 0 {
+		// No filename provided - create untitled document
+		filename = getUntitledFilename()
+		lines = []string{""}
+		isUntitled = true
+		LogInfo("Starting with untitled document: " + filename)
+	} else {
+		// Filename provided
+		filename = args[0]
+		isUntitled = false
+
+		// Load or create file
+		var err error
+		lines, err = loadFile(filename)
+		if err != nil {
+			fmt.Printf("Error loading file: %v\n", err)
+			os.Exit(1)
+		}
+		LogInfo("Loaded file: " + filename)
+	}
 
 	// Determine document mode
 	docMode := StoryMode
 	if *modeFlag == "script" {
 		docMode = ScriptMode
-	}
-
-	// Load or create file
-	lines, err := loadFile(filename)
-	if err != nil {
-		fmt.Printf("Error loading file: %v\n", err)
-		os.Exit(1)
 	}
 
 	// Initialize model
@@ -260,9 +309,9 @@ func main() {
 		cursorY:           0,
 		offsetY:           0,
 		offsetX:           0,
-		mode:              ReadMode, // Start in read mode
-		saved:             true,
-		modified:          false,
+		mode:              ReadMode,    // Start in read mode
+		saved:             !isUntitled, // Untitled docs start as unsaved
+		modified:          isUntitled,  // Untitled docs start as modified
 		lastSave:          time.Now(),
 		wrapCache:         make(map[int][]wrappedLine),
 		wrapWidth:         0,
@@ -270,6 +319,8 @@ func main() {
 		fontSizeDirection: "",
 		lastFontSizeTime:  time.Now(),
 		zenMode:           false,
+		cursorVisible:     true, // Start with cursor visible
+		lastCursorBlink:   time.Now(),
 		spellChecker:      newSpellChecker("uk"), // Default to UK English
 		commandMode:       false,
 		commandBuffer:     "",

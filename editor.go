@@ -6,8 +6,10 @@ import tea "github.com/charmbracelet/bubbletea"
 func (m model) handleEditMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up":
-		if m.cursorY > 0 {
-			m.cursorY--
+		// Navigate by wrapped lines, not source lines
+		currentWrappedIdx := m.getWrappedLineIndexForCursor()
+		if currentWrappedIdx > 0 {
+			m.moveToWrappedLine(currentWrappedIdx - 1)
 			// Adjust cursor X if line is shorter
 			lineLen := len(m.getCurrentLine())
 			if m.cursorX > lineLen {
@@ -17,15 +19,15 @@ func (m model) handleEditMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "down":
-		if m.cursorY < len(m.lines)-1 {
-			m.cursorY++
-			// Adjust cursor X if line is shorter
-			lineLen := len(m.getCurrentLine())
-			if m.cursorX > lineLen {
-				m.cursorX = lineLen
-			}
-			m.adjustViewport()
+		// Navigate by wrapped lines, not source lines
+		currentWrappedIdx := m.getWrappedLineIndexForCursor()
+		m.moveToWrappedLine(currentWrappedIdx + 1)
+		// Adjust cursor X if line is shorter
+		lineLen := len(m.getCurrentLine())
+		if m.cursorX > lineLen {
+			m.cursorX = lineLen
 		}
+		m.adjustViewport()
 
 	case "left":
 		if m.cursorX > 0 {
@@ -53,6 +55,14 @@ func (m model) handleEditMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "end":
 		m.cursorX = len(m.getCurrentLine())
+
+	case "tab":
+		// Insert 4 spaces for tab
+		line := m.getCurrentLine()
+		m.lines[m.cursorY] = line[:m.cursorX] + "    " + line[m.cursorX:]
+		m.cursorX += 4
+		m.modified = true
+		m.invalidateWrapCache(m.cursorY)
 
 	case "enter":
 		// Split line at cursor
