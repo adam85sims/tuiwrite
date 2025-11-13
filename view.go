@@ -106,44 +106,19 @@ func (m model) View() string {
 				wl := visibleLines[i]
 				line := wl.text
 
-				// Truncate line if too long for editor width
-				if len(line) > editorWidth-1 {
-					line = line[:editorWidth-2] + "…"
-				}
-
 				// Show cursor if this wrapped line is from the current source line
 				if wl.sourceLineY == m.cursorY && !m.fileTreeFocused {
-					cursorPosInWrap := m.cursorX
-					// Bounds checking - prevent negative indices and out of range
-					if cursorPosInWrap < 0 {
-						cursorPosInWrap = 0
-					}
-					if cursorPosInWrap > len(line) {
-						cursorPosInWrap = len(line)
-					}
+					// Apply both spell-check and cursor
+					line = m.renderLineWithCursorAndSpellCheck(line, m.cursorX)
+				} else {
+					// Just apply spell-check highlighting (no cursor)
+					line = m.applySpellCheckHighlighting(line)
+				}
 
-					before := ""
-					after := ""
-					cursor := " " // Default to space for empty position
-
-					if cursorPosInWrap < len(line) {
-						before = line[:cursorPosInWrap]
-						cursor = string(line[cursorPosInWrap])
-						after = line[cursorPosInWrap+1:]
-					} else if cursorPosInWrap == len(line) {
-						before = line
-					}
-
-					// Apply Maroon background to cursor if visible
-					if m.cursorVisible {
-						cursorStyle := lipgloss.NewStyle().
-							Background(lipgloss.Color(ColorToHex(Maroon))).
-							Foreground(lipgloss.Color(ColorToHex(Base)))
-						line = before + cursorStyle.Render(cursor) + after
-					} else {
-						// Cursor not visible - just show the character normally
-						line = before + cursor + after
-					}
+				// Truncate line if too long for editor width (after styling)
+				// Note: This is a rough truncation and may cut ANSI codes, but it's acceptable
+				if len(line) > editorWidth-1 {
+					line = line[:editorWidth-2] + "…"
 				}
 
 				editorLine = baseStyle.Width(editorWidth).Render(line)
@@ -172,40 +147,11 @@ func (m model) View() string {
 				// Show cursor if this wrapped line is from the current source line
 				// Cursor is visible in both Read and Edit modes
 				if wl.sourceLineY == m.cursorY {
-					// Calculate which part of the source line is in this wrap
-					// For now, simplified - just show cursor at the position
-					// TODO: Handle cursor position within wrapped lines more accurately
-					cursorPosInWrap := m.cursorX
-					// Bounds checking - prevent negative indices and out of range
-					if cursorPosInWrap < 0 {
-						cursorPosInWrap = 0
-					}
-					if cursorPosInWrap > len(line) {
-						cursorPosInWrap = len(line)
-					}
-
-					before := ""
-					after := ""
-					cursor := " " // Default to space for empty position
-
-					if cursorPosInWrap < len(line) {
-						before = line[:cursorPosInWrap]
-						cursor = string(line[cursorPosInWrap])
-						after = line[cursorPosInWrap+1:]
-					} else if cursorPosInWrap == len(line) {
-						before = line
-					}
-
-					// Apply Maroon background to cursor if visible
-					if m.cursorVisible {
-						cursorStyle := lipgloss.NewStyle().
-							Background(lipgloss.Color(ColorToHex(Maroon))).
-							Foreground(lipgloss.Color(ColorToHex(Base)))
-						line = before + cursorStyle.Render(cursor) + after
-					} else {
-						// Cursor not visible - just show the character normally
-						line = before + cursor + after
-					}
+					// Apply both spell-check and cursor highlighting
+					line = m.renderLineWithCursorAndSpellCheck(line, m.cursorX)
+				} else {
+					// Just apply spell-check highlighting (no cursor)
+					line = m.applySpellCheckHighlighting(line)
 				}
 			} else {
 				line = "~" // Empty line indicator
@@ -308,4 +254,177 @@ func (m *model) setStatus(text string, color string) {
 		Color:     color,
 		Timestamp: time.Now(),
 	}
+}
+
+// applySpellCheckHighlighting applies red background to misspelled words in a line
+func (m model) applySpellCheckHighlighting(line string) string {
+	// Skip if spell checker is disabled
+	if m.spellChecker == nil || !m.spellChecker.enabled {
+		return line
+	}
+
+	// Get words and their positions
+	words := getWordsInLine(line)
+	if len(words) == 0 {
+		return line
+	}
+
+	// Build the highlighted line by processing each segment
+	var result strings.Builder
+	lastEnd := 0
+
+	// Style for misspelled words - red background with base (dark) text
+	errorStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorToHex(Red))).
+		Foreground(lipgloss.Color(ColorToHex(Base)))
+
+	for _, w := range words {
+		// Add text before this word
+		if w.start > lastEnd {
+			result.WriteString(line[lastEnd:w.start])
+		}
+
+		// Check if word is misspelled
+		if !m.spellChecker.checkWord(w.word) {
+			// Highlight misspelled word
+			result.WriteString(errorStyle.Render(w.word))
+		} else {
+			// Word is correct, render normally
+			result.WriteString(w.word)
+		}
+
+		lastEnd = w.end
+	}
+
+	// Add any remaining text after the last word
+	if lastEnd < len(line) {
+		result.WriteString(line[lastEnd:])
+	}
+
+	return result.String()
+}
+
+// renderLineWithCursorAndSpellCheck renders a line with both cursor and spell-check highlighting
+func (m model) renderLineWithCursorAndSpellCheck(line string, cursorPos int) string {
+	// First, work out which character will have the cursor
+	if cursorPos < 0 {
+		cursorPos = 0
+	}
+	
+	// For cursor positioning, we need to work with the original line
+	// We'll build the line with spell-check and insert cursor styling at the right position
+	
+	// Get words for spell-check
+	words := getWordsInLine(line)
+	
+	// Styles
+	errorStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorToHex(Red))).
+		Foreground(lipgloss.Color(ColorToHex(Base)))
+	
+	cursorStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorToHex(Maroon))).
+		Foreground(lipgloss.Color(ColorToHex(Base)))
+	
+	// Build result
+	var result strings.Builder
+	lastEnd := 0
+	spellCheckEnabled := m.spellChecker != nil && m.spellChecker.enabled
+	
+	for _, w := range words {
+		// Render text before this word
+		if w.start > lastEnd {
+			segment := line[lastEnd:w.start]
+			// Check if cursor is in this segment
+			if cursorPos >= lastEnd && cursorPos < w.start {
+				relPos := cursorPos - lastEnd
+				result.WriteString(segment[:relPos])
+				if m.cursorVisible {
+					cursorChar := " "
+					if relPos < len(segment) {
+						cursorChar = string(segment[relPos])
+					}
+					result.WriteString(cursorStyle.Render(cursorChar))
+				} else {
+					if relPos < len(segment) {
+						result.WriteString(string(segment[relPos]))
+					} else {
+						result.WriteString(" ")
+					}
+				}
+				if relPos+1 < len(segment) {
+					result.WriteString(segment[relPos+1:])
+				}
+			} else {
+				result.WriteString(segment)
+			}
+		}
+		
+		// Render the word
+		isMisspelled := spellCheckEnabled && !m.spellChecker.checkWord(w.word)
+		
+		// Check if cursor is in this word
+		if cursorPos >= w.start && cursorPos < w.end {
+			relPos := cursorPos - w.start
+			before := w.word[:relPos]
+			cursorChar := string(w.word[relPos])
+			after := ""
+			if relPos+1 < len(w.word) {
+				after = w.word[relPos+1:]
+			}
+			
+			if isMisspelled {
+				result.WriteString(errorStyle.Render(before))
+			} else {
+				result.WriteString(before)
+			}
+			
+			if m.cursorVisible {
+				result.WriteString(cursorStyle.Render(cursorChar))
+			} else {
+				result.WriteString(cursorChar)
+			}
+			
+			if isMisspelled {
+				result.WriteString(errorStyle.Render(after))
+			} else {
+				result.WriteString(after)
+			}
+		} else {
+			// No cursor in word
+			if isMisspelled {
+				result.WriteString(errorStyle.Render(w.word))
+			} else {
+				result.WriteString(w.word)
+			}
+		}
+		
+		lastEnd = w.end
+	}
+	
+	// Render remaining text after last word
+	if lastEnd < len(line) {
+		segment := line[lastEnd:]
+		if cursorPos >= lastEnd && cursorPos < len(line) {
+			relPos := cursorPos - lastEnd
+			result.WriteString(segment[:relPos])
+			if m.cursorVisible {
+				result.WriteString(cursorStyle.Render(string(segment[relPos])))
+			} else {
+				result.WriteString(string(segment[relPos]))
+			}
+			if relPos+1 < len(segment) {
+				result.WriteString(segment[relPos+1:])
+			}
+		} else {
+			result.WriteString(segment)
+		}
+	}
+	
+	// Cursor at end of line
+	if cursorPos >= len(line) && m.cursorVisible {
+		result.WriteString(cursorStyle.Render(" "))
+	}
+	
+	return result.String()
 }
