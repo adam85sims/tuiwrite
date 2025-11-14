@@ -217,9 +217,9 @@ func (m model) handleFileTreeNavigation(key string) (tea.Model, tea.Cmd) {
 				m.toggleDirectory(node.Path)
 				LogDebugf("Toggled directory: %s", node.Name)
 			} else {
-				// TODO: Open file for editing
+				// Open file for editing in current instance
 				LogInfof("Opening file: %s", node.Path)
-				m.setStatus("File opening: "+node.Name, "green")
+				return m.openFileInCurrentInstance(node.Path)
 			}
 		}
 	}

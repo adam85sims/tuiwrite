@@ -299,3 +299,37 @@ func (m *model) moveToWrappedLine(targetWrappedIdx int) bool {
 
 	return false
 }
+
+// getSourceLineFromWrappedIndex returns the source line and character offset for a wrapped line index
+// Returns (sourceLineY, characterOffset) where characterOffset is the starting position of the wrapped segment
+func (m *model) getSourceLineFromWrappedIndex(wrappedIdx int) (int, int) {
+	if wrappedIdx < 0 {
+		return 0, 0
+	}
+
+	currentWrappedIdx := 0
+	for lineIdx := 0; lineIdx < len(m.lines); lineIdx++ {
+		wrappedForLine := m.getWrappedLine(lineIdx)
+
+		if currentWrappedIdx+len(wrappedForLine) > wrappedIdx {
+			// Target is within this source line
+			wrappedOffset := wrappedIdx - currentWrappedIdx
+
+			// Calculate character offset
+			charOffset := 0
+			for i := 0; i < wrappedOffset && i < len(wrappedForLine); i++ {
+				charOffset += len(wrappedForLine[i].text)
+			}
+
+			return lineIdx, charOffset
+		}
+
+		currentWrappedIdx += len(wrappedForLine)
+	}
+
+	// Past end of document
+	if len(m.lines) > 0 {
+		return len(m.lines) - 1, len(m.lines[len(m.lines)-1])
+	}
+	return 0, 0
+}

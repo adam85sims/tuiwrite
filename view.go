@@ -106,16 +106,21 @@ func (m model) View() string {
 				wl := visibleLines[i]
 				line := wl.text
 
-				// Show cursor if this wrapped line is from the current source line
-				if wl.sourceLineY == m.cursorY && !m.fileTreeFocused {
-					// Apply both spell-check and cursor
-					line = m.renderLineWithCursorAndSpellCheck(line, m.cursorX)
-				} else {
-					// Just apply spell-check highlighting (no cursor)
-					line = m.applySpellCheckHighlighting(line)
-				}
+			// Show cursor if this wrapped line is from the current source line
+			if wl.sourceLineY == m.cursorY && !m.fileTreeFocused {
+				// Apply both spell-check and cursor
+				line = m.renderLineWithCursorAndSpellCheck(line, m.cursorX)
+			} else {
+				// Just apply spell-check highlighting (no cursor)
+				line = m.applySpellCheckHighlighting(line)
+			}
 
-				// Truncate line if too long for editor width (after styling)
+			// Apply selection highlighting if active
+			if m.selectionActive {
+				line = m.applySelectionHighlighting(line, wl.sourceLineY, 0)
+			}
+
+			// Truncate line if too long for editor width (after styling)
 				// Note: This is a rough truncation and may cut ANSI codes, but it's acceptable
 				if len(line) > editorWidth-1 {
 					line = line[:editorWidth-2] + "…"
@@ -144,15 +149,20 @@ func (m model) View() string {
 				wl := visibleLines[i]
 				line = wl.text
 
-				// Show cursor if this wrapped line is from the current source line
-				// Cursor is visible in both Read and Edit modes
-				if wl.sourceLineY == m.cursorY {
-					// Apply both spell-check and cursor highlighting
-					line = m.renderLineWithCursorAndSpellCheck(line, m.cursorX)
-				} else {
-					// Just apply spell-check highlighting (no cursor)
-					line = m.applySpellCheckHighlighting(line)
-				}
+			// Show cursor if this wrapped line is from the current source line
+			// Cursor is visible in both Read and Edit modes
+			if wl.sourceLineY == m.cursorY {
+				// Apply both spell-check and cursor highlighting
+				line = m.renderLineWithCursorAndSpellCheck(line, m.cursorX)
+			} else {
+				// Just apply spell-check highlighting (no cursor)
+				line = m.applySpellCheckHighlighting(line)
+			}
+
+			// Apply selection highlighting if active
+			if m.selectionActive {
+				line = m.applySelectionHighlighting(line, wl.sourceLineY, 0)
+			}
 			} else {
 				line = "~" // Empty line indicator
 			}
@@ -236,9 +246,9 @@ func (m model) renderStatusBar() string {
 	} else {
 		// Show help text
 		if m.mode == ReadMode {
-			commandText = "Press INSERT to edit | : for commands | Ctrl+S to save | Ctrl+C to quit"
+			commandText = "Press INSERT to edit | : for commands | Ctrl+S to save | Ctrl+Q to quit"
 		} else {
-			commandText = "Press ESC for read mode | Ctrl+S to save | Ctrl+C to quit"
+			commandText = "ESC: read | Shift+arrows: select | Ctrl+C: copy | Ctrl+V: paste | Ctrl+S: save | Ctrl+Q: quit"
 		}
 	}
 
@@ -427,4 +437,78 @@ func (m model) renderLineWithCursorAndSpellCheck(line string, cursorPos int) str
 	}
 	
 	return result.String()
+}
+
+// applySelectionHighlighting applies blue highlight background to selected text
+func (m model) applySelectionHighlighting(line string, lineY int, lineOffset int) string {
+	if !m.selectionActive {
+		return line
+	}
+
+	// Get selection bounds (normalize so start is always before end)
+	startY, startX := m.selectionStartY, m.selectionStartX
+	endY, endX := m.cursorY, m.cursorX
+
+	// Swap if selection is backwards
+	if startY > endY || (startY == endY && startX > endX) {
+		startY, endY = endY, startY
+		startX, endX = endX, startX
+	}
+
+	// Check if this line is in the selection range
+	if lineY < startY || lineY > endY {
+		return line // Not in selection
+	}
+
+	// Determine selection range for this line
+	var selStart, selEnd int
+	if lineY == startY && lineY == endY {
+		// Single line selection
+		selStart = startX - lineOffset
+		selEnd = endX - lineOffset
+	} else if lineY == startY {
+		// First line of multi-line selection
+		selStart = startX - lineOffset
+		selEnd = len(line)
+	} else if lineY == endY {
+		// Last line of multi-line selection
+		selStart = 0
+		selEnd = endX - lineOffset
+	} else {
+		// Middle line of multi-line selection
+		selStart = 0
+		selEnd = len(line)
+	}
+
+	// Clamp to line bounds
+	if selStart < 0 {
+		selStart = 0
+	}
+	if selEnd > len(line) {
+		selEnd = len(line)
+	}
+	if selStart >= len(line) {
+		return line // Selection doesn't overlap this wrapped segment
+	}
+
+	// This is a simplified approach - it won't handle ANSI codes properly
+	// A full implementation would need to parse and re-apply ANSI codes
+	// For now, we'll apply selection over the plain text
+	selectionStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorToHex(Blue))).
+		Foreground(lipgloss.Color(ColorToHex(Base)))
+
+	if selStart == 0 && selEnd >= len(line) {
+		// Entire line is selected
+		return selectionStyle.Render(line)
+	} else if selStart > 0 && selEnd >= len(line) {
+		// Selection starts partway through
+		return line[:selStart] + selectionStyle.Render(line[selStart:])
+	} else if selStart == 0 {
+		// Selection ends partway through
+		return selectionStyle.Render(line[:selEnd]) + line[selEnd:]
+	} else {
+		// Selection in middle of line
+		return line[:selStart] + selectionStyle.Render(line[selStart:selEnd]) + line[selEnd:]
+	}
 }

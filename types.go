@@ -98,6 +98,11 @@ type model struct {
 	cursorVisible   bool      // true when cursor should be visible (toggles for blink)
 	lastCursorBlink time.Time // last time cursor blink toggled
 
+	// Text selection
+	selectionActive bool // true when text is selected
+	selectionStartX int  // starting column of selection
+	selectionStartY int  // starting line of selection
+
 	// File tree
 	fileTreeVisible bool       // true when file tree sidebar is shown
 	fileTreeFocused bool       // true when file tree has focus (vs editor)

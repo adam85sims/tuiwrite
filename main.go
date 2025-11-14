@@ -63,6 +63,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cursorVisible = !m.cursorVisible
 		m.lastCursorBlink = time.Now()
 		return m, tickCursorBlink()
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 	}
 
 	return m, nil
@@ -77,7 +80,7 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Global keybindings (work in both modes)
 	switch msg.String() {
-	case "ctrl+c", "ctrl+q":
+	case "ctrl+q":
 		return m, tea.Quit
 
 	case "ctrl+s":
@@ -237,10 +240,100 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 
+	case "e", "edit", "open":
+		// Open file in current instance
+		if len(parts) < 2 {
+			m.setStatus("Usage: :e <filename>", "yellow")
+			return m, nil
+		}
+		return m.openFileInCurrentInstance(parts[1])
+
+	case "new", "vnew", "split":
+		// Open file in new instance (tmux/screen split if available)
+		if len(parts) < 2 {
+			m.setStatus("Usage: :new <filename>", "yellow")
+			return m, nil
+		}
+		return m.openFileInNewInstance(parts[1], parts[0])
+
+	case "help", "h":
+		// Show command help
+		return m.showMultiplexerHelp()
+
 	default:
 		m.setStatus("Unknown command: "+parts[0], "red")
 		return m, nil
 	}
+}
+
+// handleMouse processes mouse events for text selection
+func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Only handle mouse in edit mode
+	if m.mode != EditMode {
+		return m, nil
+	}
+
+	// Skip if file tree is focused
+	if m.fileTreeFocused {
+		return m, nil
+	}
+
+	switch msg.Button {
+	case tea.MouseButtonLeft:
+		if msg.Action == tea.MouseActionPress {
+			// Mouse down - start selection
+			// Convert screen coordinates to document coordinates
+			// msg.Y is screen row, need to account for status bars and viewport offset
+			// First 2 lines are status, so document starts at line 2
+			screenY := msg.Y - 2 // Account for status bars at top
+			if screenY < 0 {
+				return m, nil // Click was in status area
+			}
+
+			// Convert wrapped line position to source line
+			wrappedIdx := m.offsetY + screenY
+			sourceY, offsetInLine := m.getSourceLineFromWrappedIndex(wrappedIdx)
+
+			// Calculate X position (accounting for horizontal scroll)
+			clickX := msg.X + m.offsetX + offsetInLine
+
+			// Clamp to line bounds
+			if sourceY >= 0 && sourceY < len(m.lines) {
+				lineLen := len(m.lines[sourceY])
+				if clickX > lineLen {
+					clickX = lineLen
+				}
+
+				m.cursorY = sourceY
+				m.cursorX = clickX
+				m.selectionActive = true
+				m.selectionStartX = clickX
+				m.selectionStartY = sourceY
+			}
+		} else if msg.Action == tea.MouseActionMotion && m.selectionActive {
+			// Mouse drag - extend selection
+			screenY := msg.Y - 2
+			if screenY < 0 {
+				return m, nil
+			}
+
+			wrappedIdx := m.offsetY + screenY
+			sourceY, offsetInLine := m.getSourceLineFromWrappedIndex(wrappedIdx)
+			clickX := msg.X + m.offsetX + offsetInLine
+
+			if sourceY >= 0 && sourceY < len(m.lines) {
+				lineLen := len(m.lines[sourceY])
+				if clickX > lineLen {
+					clickX = lineLen
+				}
+
+				m.cursorY = sourceY
+				m.cursorX = clickX
+			}
+		}
+	}
+
+	return m, nil
 }
 
 // getUntitledFilename generates a unique untitled document filename
@@ -336,7 +429,7 @@ func main() {
 	}
 
 	// Run the program
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error running program: %v\n", err)
 		os.Exit(1)
